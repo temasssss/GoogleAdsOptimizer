@@ -3,6 +3,7 @@ import re
 from urllib.parse import urlparse, parse_qs
 from google.ads.googleads.client import GoogleAdsClient
 from sqlalchemy import create_engine, text
+from sshtunnel import SSHTunnelForwarder
 from superagi.tools.base_tool import BaseTool
 from pydantic import BaseModel, Field
 from typing import Type, Optional
@@ -56,20 +57,37 @@ login_customer_id: {credentials['login_customer_id']}
         return GoogleAdsClient.load_from_storage("google-ads.yaml")
 
     def _fetch_sales_data(self, attribution_window_days: int):
-        database_url = os.getenv("DATABASE_URL")
-        engine = create_engine(database_url)
-        
-        query = text(f"""
-        SELECT id, data, comp, otkuda, otkudaAds, kuda, ip, ref, conv, cost, fromCountry, toCountry, fromCur, toCur, amount, lang
-        FROM clicks
-        WHERE data >= NOW() - INTERVAL {attribution_window_days} DAY
-        AND otkudaAds = 'y'
-        """)
+        ssh_host = os.getenv("SSH_HOST")
+        ssh_port = int(os.getenv("SSH_PORT", 22))
+        ssh_username = os.getenv("SSH_USERNAME")
+        ssh_password = os.getenv("SSH_PASSWORD")
+        db_host = os.getenv("DB_HOST")
+        db_port = int(os.getenv("DB_PORT", 3306))
+        db_user = os.getenv("DB_USER")
+        db_password = os.getenv("DB_PASSWORD")
+        db_name = os.getenv("DB_NAME")
 
-        with engine.connect() as connection:
-            result = connection.execute(query)
-            sales_data = result.fetchall()
-        
+        with SSHTunnelForwarder(
+            (ssh_host, ssh_port),
+            ssh_username=ssh_username,
+            ssh_password=ssh_password,
+            remote_bind_address=(db_host, db_port)
+        ) as tunnel:
+            local_port = tunnel.local_bind_port
+            database_url = f"mysql+pymysql://{db_user}:{db_password}@127.0.0.1:{local_port}/{db_name}"
+
+            engine = create_engine(database_url)
+            query = text(f"""
+            SELECT id, data, comp, otkuda, otkudaAds, kuda, ip, ref, conv, cost, fromCountry, toCountry, fromCur, toCur, amount, lang
+            FROM clicks
+            WHERE data >= NOW() - INTERVAL {attribution_window_days} DAY
+            AND otkudaAds = 'y'
+            """)
+
+            with engine.connect() as connection:
+                result = connection.execute(query)
+                sales_data = result.fetchall()
+
         return sales_data
 
     def _extract_gbraid(self, url: str) -> Optional[str]:
