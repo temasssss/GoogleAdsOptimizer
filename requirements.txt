@@ -1,0 +1,4 @@
+google-ads
+sqlalchemy
+pymysql
+superagi-tools
