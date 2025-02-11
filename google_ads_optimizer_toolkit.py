@@ -1,4 +1,4 @@
-from superagi.tools.base_toolkit import BaseToolkit
+from superagi.tools.base_tool import BaseToolkit
 from google_ads_optimizer_tool import GoogleAdsOptimizer
 
 class GoogleAdsOptimizerToolkit(BaseToolkit):
