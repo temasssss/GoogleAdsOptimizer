@@ -8,6 +8,10 @@ from superagi.tools.base_tool import BaseTool
 from pydantic import BaseModel, Field
 from typing import Type, Optional
 
+print("GOOGLE_ADS_CLIENT_ID:", os.getenv("GOOGLE_ADS_CLIENT_ID"))
+print("GOOGLE_ADS_CLIENT_SECRET:", os.getenv("GOOGLE_ADS_CLIENT_SECRET"))
+print("GOOGLE_ADS_REFRESH_TOKEN:", os.getenv("GOOGLE_ADS_REFRESH_TOKEN"))
+print("GOOGLE_ADS_LOGIN_CUSTOMER_ID:", os.getenv("GOOGLE_ADS_LOGIN_CUSTOMER_ID"))
 
 class GoogleAdsOptimizerInput(BaseModel):
     campaign_id: str = Field(..., description="ID рекламной кампании для оптимизации.")
