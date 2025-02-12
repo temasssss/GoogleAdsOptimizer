@@ -44,16 +44,22 @@ class GoogleAdsOptimizer(BaseTool):
             "login_customer_id": os.getenv("GOOGLE_ADS_LOGIN_CUSTOMER_ID")
         }
 
+        # Формирование конфигурации для google-ads.yaml
+        config_lines = [
+            f"developer_token: {credentials['developer_token']}",
+            f"client_id: {credentials['client_id']}",
+            f"client_secret: {credentials['client_secret']}",
+            f"refresh_token: {credentials['refresh_token']}",
+            "use_proto_plus: True"
+        ]
+
+        # Добавляем login_customer_id только если он указан
+        if credentials['login_customer_id']:
+            config_lines.append(f"login_customer_id: {credentials['login_customer_id']}")
+
         # Сохранение конфигурации в файл
         with open("google-ads.yaml", "w") as f:
-            f.write(f"""
-developer_token: {credentials['developer_token']}
-client_id: {credentials['client_id']}
-client_secret: {credentials['client_secret']}
-refresh_token: {credentials['refresh_token']}
-login_customer_id: {credentials['login_customer_id']}
-use_proto_plus: True
-""")
+            f.write("\n".join(config_lines))
 
         return GoogleAdsClient.load_from_storage("google-ads.yaml")
 
