@@ -52,6 +52,7 @@ client_id: {credentials['client_id']}
 client_secret: {credentials['client_secret']}
 refresh_token: {credentials['refresh_token']}
 login_customer_id: {credentials['login_customer_id']}
+use_proto_plus: True
 """)
 
         return GoogleAdsClient.load_from_storage("google-ads.yaml")
