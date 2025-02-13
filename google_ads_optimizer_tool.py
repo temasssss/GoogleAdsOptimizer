@@ -33,8 +33,16 @@ class GoogleAdsOptimizer(BaseTool):
     description: str = "Оптимизация Google Ads кампаний на основе данных о продажах и машинного обучения."
 
     def _initialize_google_ads_client(self):
-        """Инициализация клиента Google Ads."""
-        return GoogleAdsClient.load_from_storage("google-ads.yaml")
+        """Инициализация клиента Google Ads с использованием переменных окружения."""
+        config = {
+            "developer_token": os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN"),
+            "client_id": os.getenv("GOOGLE_ADS_CLIENT_ID"),
+            "client_secret": os.getenv("GOOGLE_ADS_CLIENT_SECRET"),
+            "refresh_token": os.getenv("GOOGLE_ADS_REFRESH_TOKEN"),
+            "login_customer_id": os.getenv("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+            "use_proto_plus": True
+        }
+        return GoogleAdsClient.load_from_dict(config)
 
     def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
