@@ -50,6 +50,17 @@ class GoogleAdsOptimizer(BaseTool):
             raise ValueError(f"❌ Отсутствуют обязательные параметры: {missing_keys}")
         return GoogleAdsClient.load_from_dict(config)
 
+    def _apply_optimization_strategy(self, campaign_id, strategy, max_cpa, min_conversion_rate):
+        """Применяет стратегию оптимизации ставок в зависимости от выбранного метода."""
+        suggested_changes = {}
+        if strategy == "ROAS":
+            suggested_changes = {"adjustment": "Increase bids on high ROAS keywords"}
+        elif strategy == "CPA":
+            suggested_changes = {"adjustment": "Reduce bids on high CPA keywords"}
+        elif strategy == "Manual":
+            suggested_changes = {"adjustment": "Provide manual bid recommendations"}
+        return suggested_changes
+
     def _fetch_sales_data(self, attribution_window_days: int):
         """Функция загрузки данных о продажах из базы данных."""
         database_url = self.get_tool_config("DATABASE_URL")
@@ -63,27 +74,6 @@ class GoogleAdsOptimizer(BaseTool):
             result = connection.execute(query)
             sales_data = result.fetchall()
         return sales_data
-
-    def _calculate_sales_per_ad(self, sales_data):
-        """Анализирует продажи по объявлениям, используя gbraid."""
-        ad_sales = defaultdict(lambda: {"total_sales": 0.0, "conversion_count": 0})
-        
-        for row in sales_data:
-            kuda = row.kuda  # URL страницы перехода
-            cost = float(row.cost) if row.cost is not None else 0.0  # Преобразуем cost в float
-            conv = row.conv  # Тип конверсии (registr или transfer)
-
-            # Извлекаем gbraid из URL
-            parsed_url = urlparse(kuda)
-            query_params = parse_qs(parsed_url.query)
-            gbraid = query_params.get("gbraid", [None])[0]  # Берем первый gbraid, если есть
-
-            if gbraid:
-                ad_sales[gbraid]["total_sales"] += cost
-                if conv in ["registr", "transfer"]:
-                    ad_sales[gbraid]["conversion_count"] += 1
-
-        return ad_sales
 
     def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
