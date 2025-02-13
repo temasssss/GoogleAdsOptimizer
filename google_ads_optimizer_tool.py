@@ -32,6 +32,10 @@ class GoogleAdsOptimizer(BaseTool):
     args_schema: Type[BaseModel] = GoogleAdsOptimizerInput
     description: str = "Оптимизация Google Ads кампаний на основе данных о продажах и машинного обучения."
 
+    def _initialize_google_ads_client(self):
+        """Инициализация клиента Google Ads."""
+        return GoogleAdsClient.load_from_storage("google-ads.yaml")
+
     def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
         logging.info(f"🔹 Запуск оптимизации кампании {campaign_id} в тестовом режиме: {TEST_MODE}")
