@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from typing import Type, Optional
 from email.message import EmailMessage
 from sklearn.ensemble import RandomForestRegressor
+from collections import defaultdict
 
 # Включение логирования действий агента
 logging.basicConfig(filename="agent_actions.log", level=logging.INFO)
@@ -54,22 +55,46 @@ class GoogleAdsOptimizer(BaseTool):
         database_url = self.get_tool_config("DATABASE_URL")
         engine = create_engine(database_url)
         query = text(f"""
-            SELECT * FROM sales_data
-            WHERE date >= NOW() - INTERVAL '{attribution_window_days} days'
+            SELECT * FROM clicks
+            WHERE data >= NOW() - INTERVAL '{attribution_window_days} days'
+            AND otkudaAds = 'y' AND kuda LIKE '%gbraid%'
         """)
         with engine.connect() as connection:
             result = connection.execute(query)
             sales_data = result.fetchall()
         return sales_data
 
+    def _calculate_sales_per_ad(self, sales_data):
+        """Анализирует продажи по объявлениям, используя gbraid."""
+        ad_sales = defaultdict(lambda: {"total_sales": 0, "conversion_count": 0})
+        
+        for row in sales_data:
+            kuda = row.kuda  # URL страницы перехода
+            cost = row.cost  # Комиссия с продажи
+            conv = row.conv  # Тип конверсии (registr или transfer)
+
+            # Извлекаем gbraid из URL
+            parsed_url = urlparse(kuda)
+            query_params = parse_qs(parsed_url.query)
+            gbraid = query_params.get("gbraid", [None])[0]  # Берем первый gbraid, если есть
+
+            if gbraid:
+                ad_sales[gbraid]["total_sales"] += cost
+                if conv in ["registr", "transfer"]:
+                    ad_sales[gbraid]["conversion_count"] += 1
+
+        return ad_sales
+
     def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
         logging.info(f"🔹 Запуск оптимизации кампании {campaign_id} в тестовом режиме: {TEST_MODE}")
         google_ads_client = self._initialize_google_ads_client()
         sales_data = self._fetch_sales_data(attribution_window_days)
-        model = self._train_bid_model(sales_data)
-        self._check_budget_limits(google_ads_client, campaign_id, daily_budget_limit, max_budget)
-        self._analyze_keywords(google_ads_client, campaign_id)
+        sales_per_ad = self._calculate_sales_per_ad(sales_data)
+
+        # Логирование результатов
+        logging.info(f"🔹 Анализ продаж по объявлениям: {sales_per_ad}")
+        print("🔹 Анализ продаж по объявлениям:", sales_per_ad)
         
         optimization_result = {
             "suggested_changes": self._apply_optimization_strategy(campaign_id, optimization_strategy, max_cpa, min_conversion_rate)
