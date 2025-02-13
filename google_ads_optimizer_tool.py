@@ -49,6 +49,19 @@ class GoogleAdsOptimizer(BaseTool):
             raise ValueError(f"❌ Отсутствуют обязательные параметры: {missing_keys}")
         return GoogleAdsClient.load_from_dict(config)
 
+    def _fetch_sales_data(self, attribution_window_days: int):
+        """Функция загрузки данных о продажах из базы данных."""
+        database_url = self.get_tool_config("DATABASE_URL")
+        engine = create_engine(database_url)
+        query = text(f"""
+            SELECT * FROM sales_data
+            WHERE date >= NOW() - INTERVAL '{attribution_window_days} days'
+        """)
+        with engine.connect() as connection:
+            result = connection.execute(query)
+            sales_data = result.fetchall()
+        return sales_data
+
     def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
         logging.info(f"🔹 Запуск оптимизации кампании {campaign_id} в тестовом режиме: {TEST_MODE}")
@@ -70,32 +83,6 @@ class GoogleAdsOptimizer(BaseTool):
         
         self._save_report_to_file("optimization_report.txt", optimization_result)
         return optimization_result
-
-    def _apply_optimization_strategy(self, campaign_id, strategy, cpa, roas):
-        if strategy == "ROAS":
-            if roas > 3:
-                return "Увеличение ставок, ROAS высокий"
-            elif roas < 1:
-                return "Снижение ставок, ROAS низкий"
-        elif strategy == "CPA":
-            if cpa > self.max_cpa:
-                return "Снижение ставок, CPA выше допустимого"
-            elif cpa < self.max_cpa * 0.8:
-                return "Увеличение ставок, CPA низкий"
-        return "Ставки без изменений"
-
-    def _safe_bid_adjustment(self, new_bid, current_bid):
-        max_change = 0.3
-        if new_bid > current_bid * (1 + max_change):
-            new_bid = current_bid * (1 + max_change)
-        elif new_bid < current_bid * (1 - max_change):
-            new_bid = current_bid * (1 - max_change)
-        return new_bid
-
-    def _log_action(self, action, details):
-        log_message = f"🔹 Действие: {action} | Детали: {details}"
-        logging.info(log_message)
-        print(log_message)
 
     def _save_report_to_file(self, filename, report_content):
         with open(filename, "w") as file:
