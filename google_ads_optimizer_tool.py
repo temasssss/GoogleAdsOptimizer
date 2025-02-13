@@ -66,11 +66,11 @@ class GoogleAdsOptimizer(BaseTool):
 
     def _calculate_sales_per_ad(self, sales_data):
         """Анализирует продажи по объявлениям, используя gbraid."""
-        ad_sales = defaultdict(lambda: {"total_sales": 0, "conversion_count": 0})
+        ad_sales = defaultdict(lambda: {"total_sales": 0.0, "conversion_count": 0})
         
         for row in sales_data:
             kuda = row.kuda  # URL страницы перехода
-            cost = row.cost  # Комиссия с продажи
+            cost = float(row.cost) if row.cost is not None else 0.0  # Преобразуем cost в float
             conv = row.conv  # Тип конверсии (registr или transfer)
 
             # Извлекаем gbraid из URL
