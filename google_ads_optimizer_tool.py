@@ -56,8 +56,8 @@ class GoogleAdsOptimizer(BaseTool):
         engine = create_engine(database_url)
         query = text(f"""
             SELECT * FROM clicks
-            WHERE data >= NOW() - INTERVAL '{attribution_window_days} days'
-            AND otkudaAds = 'y' AND kuda LIKE '%gbraid%'
+            WHERE data >= NOW() - INTERVAL {attribution_window_days} DAY
+            AND otkudaAds = 'y' AND kuda LIKE '%%gbraid%%'
         """)
         with engine.connect() as connection:
             result = connection.execute(query)
