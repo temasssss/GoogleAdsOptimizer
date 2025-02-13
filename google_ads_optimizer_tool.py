@@ -7,7 +7,7 @@ from urllib.parse import urlparse, parse_qs
 from google.ads.googleads.client import GoogleAdsClient
 from sqlalchemy import create_engine, text
 from sshtunnel import SSHTunnelForwarder
-from superagi.tools.base_tool import BaseTool
+from superagi.tools.base_tool import BaseTool, ToolConfiguration
 from pydantic import BaseModel, Field
 from typing import Type, Optional
 from email.message import EmailMessage
@@ -33,18 +33,19 @@ class GoogleAdsOptimizer(BaseTool):
     description: str = "Оптимизация Google Ads кампаний на основе данных о продажах и машинного обучения."
 
     def _initialize_google_ads_client(self):
-        """Инициализация клиента Google Ads с использованием переменных окружения."""
+        """Инициализация клиента Google Ads с использованием конфигурации инструмента."""
         config = {
-            "developer_token": os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN"),
-            "client_id": os.getenv("GOOGLE_ADS_CLIENT_ID"),
-            "client_secret": os.getenv("GOOGLE_ADS_CLIENT_SECRET"),
-            "refresh_token": os.getenv("GOOGLE_ADS_REFRESH_TOKEN"),
-            "login_customer_id": os.getenv("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+            "developer_token": self.get_tool_config("GOOGLE_ADS_DEVELOPER_TOKEN"),
+            "client_id": self.get_tool_config("GOOGLE_ADS_CLIENT_ID"),
+            "client_secret": self.get_tool_config("GOOGLE_ADS_CLIENT_SECRET"),
+            "refresh_token": self.get_tool_config("GOOGLE_ADS_REFRESH_TOKEN"),
+            "login_customer_id": self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
             "token_uri": "https://oauth2.googleapis.com/token",
             "use_proto_plus": True
         }
-        if not all(config.values()):
-            missing_keys = [key for key, value in config.items() if not value]
+        missing_keys = [key for key, value in config.items() if not value]
+        if missing_keys:
+            logging.error(f"❌ Отсутствуют обязательные параметры: {missing_keys}")
             raise ValueError(f"❌ Отсутствуют обязательные параметры: {missing_keys}")
         return GoogleAdsClient.load_from_dict(config)
 
