@@ -107,8 +107,19 @@ class GoogleAdsOptimizer(BaseTool):
         logging.info(f"🔹 Анализ продаж по объявлениям: {sales_per_ad}")
         print("🔹 Анализ продаж по объявлениям:", sales_per_ad)
         
+        detailed_report = {
+            gbraid: {
+                "total_sales": data["total_sales"],
+                "conversion_count": data["conversion_count"],
+                "average_sale": round(data["total_sales"] / data["conversion_count"], 2) if data["conversion_count"] > 0 else 0.0
+            } for gbraid, data in sales_per_ad.items()
+        }        
+        
         optimization_result = {
-            "suggested_changes": self._apply_optimization_strategy(campaign_id, optimization_strategy, max_cpa, min_conversion_rate)
+            "campaign_id": campaign_id,
+            "strategy": optimization_strategy,
+            "suggested_changes": self._apply_optimization_strategy(campaign_id, optimization_strategy, max_cpa, min_conversion_rate),
+            "conversion_report": detailed_report
         }
         
         if TEST_MODE:
