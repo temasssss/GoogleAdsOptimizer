@@ -114,7 +114,7 @@ class GoogleAdsOptimizer(BaseTool):
                 keyword_data[keyword]["conversion_count"] += 1
         return keyword_data
         
-   def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
+    def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
         logging.info(f"🔹 Запуск оптимизации кампании {campaign_id} в тестовом режиме: {TEST_MODE}")
         google_ads_client = self._initialize_google_ads_client()
