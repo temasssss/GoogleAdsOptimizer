@@ -72,58 +72,63 @@ class GoogleAdsOptimizer(BaseTool):
         query = text(f"""
             SELECT * FROM clicks
             WHERE data >= NOW() - INTERVAL {attribution_window_days} DAY
-            AND otkudaAds = 'y' AND kuda LIKE '%%gbraid%%'
+            AND otkudaAds = 'y'
+            AND kuda LIKE '%%gclid%%'
+            AND cost > 0
         """)
         with engine.connect() as connection:
             result = connection.execute(query)
             sales_data = result.fetchall()
         return sales_data
-        
-    def _map_gbraid_to_keyword(self, google_ads_client, gbraid_list):
-        gbraid_to_keyword = {}
+
+    def _map_gclid_to_keyword(self, google_ads_client, gclid_list):
+        gclid_to_keyword = {}
         try:
             service = google_ads_client.get_service("GoogleAdsService")
-            query = f"""
-                SELECT ad_group_criterion.keyword.text, ad_group_criterion.criterion_id, campaign.id
-                FROM ad_group_criterion
-                WHERE ad_group_criterion.system_serving_status = 'ELIGIBLE'
-            """
-            response = service.search_stream(customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"), query=query)
-            for batch in response:
-                for row in batch.results:
-                    keyword_text = row.ad_group_criterion.keyword.text
-                    criterion_id = row.ad_group_criterion.criterion_id
-                    gbraid_to_keyword[str(criterion_id)] = keyword_text
+            for gclid in gclid_list:
+                query = f"""
+                    SELECT click_view.gclid, ad_group_criterion.keyword.text
+                    FROM click_view
+                    WHERE click_view.gclid = '{gclid}'
+                """
+                response = service.search_stream(customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"), query=query)
+                for batch in response:
+                    for row in batch.results:
+                        gclid_value = row.click_view.gclid
+                        keyword_text = row.ad_group_criterion.keyword.text
+                        gclid_to_keyword[gclid_value] = keyword_text
         except GoogleAdsException as ex:
             logging.error(f"Ошибка Google Ads API: {ex}")
-        return gbraid_to_keyword
-        
-    def _calculate_sales_per_keyword(self, sales_data, gbraid_map):
+        return gclid_to_keyword
+
+    def _calculate_sales_per_keyword(self, sales_data, gclid_map):
         keyword_data = defaultdict(lambda: {"total_sales": 0.0, "conversion_count": 0, "clicks": 0})
         for row in sales_data:
             parsed_url = urlparse(row.kuda)
             query_params = parse_qs(parsed_url.query)
-            gbraid = query_params.get("gbraid", [None])[0]
-            keyword = gbraid_map.get(gbraid, gbraid or "unknown")
+            gclid = query_params.get("gclid", [None])[0]
+            keyword = gclid_map.get(gclid, gclid or "unknown")
             keyword_data[keyword]["clicks"] += 1
             keyword_data[keyword]["total_sales"] += float(row.cost) if row.cost else 0.0
             if row.conv in ["registr", "transfer"]:
                 keyword_data[keyword]["conversion_count"] += 1
         return keyword_data
         
-    def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
+   def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
         logging.info(f"🔹 Запуск оптимизации кампании {campaign_id} в тестовом режиме: {TEST_MODE}")
         google_ads_client = self._initialize_google_ads_client()
         sales_data = self._fetch_sales_data(attribution_window_days)
-        gbraid_map = self._map_gbraid_to_keyword(google_ads_client, [row.kuda for row in sales_data])
-        keyword_data = self._calculate_sales_per_keyword(sales_data, gbraid_map)
+        gclid_list = [parse_qs(urlparse(row.kuda).query).get("gclid", [None])[0] for row in sales_data]
+        gclid_map = self._map_gclid_to_keyword(google_ads_client, gclid_list)
+        keyword_data = self._calculate_sales_per_keyword(sales_data, gclid_map)
 
         detailed_report = {
             keyword: {
                 "total_sales": data["total_sales"],
                 "conversion_count": data["conversion_count"],
-                "average_sale": round(data["total_sales"] / data["conversion_count"], 2) if data["conversion_count"] > 0 else 0.0
+                "average_sale": round(data["total_sales"] / data["conversion_count"], 2) if data["conversion_count"] > 0 else 0.0,
+                "status": "effective" if data["conversion_count"] > 0 or data["total_sales"] > 0 else "ineffective"
             } for keyword, data in keyword_data.items()
         }
 
@@ -141,7 +146,7 @@ class GoogleAdsOptimizer(BaseTool):
             self._apply_google_ads_changes(optimization_result)
 
         self._save_report_to_file("optimization_report.txt", optimization_result)
-        return optimization_result
+        return optimization_result       
 
     def _save_report_to_file(self, filename, report_content):
         with open(filename, "w") as file:
