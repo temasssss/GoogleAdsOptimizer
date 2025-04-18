@@ -51,7 +51,7 @@ class GoogleAdsOptimizer(BaseTool):
             raise ValueError(f"❌ Отсутствуют обязательные параметры: {missing_keys}")
         return GoogleAdsClient.load_from_dict(config)
 
-    def _apply_optimization_strategy(self, keyword_data, campaign_id, strategy, max_cpa, min_conversion_rate):
+    def _apply_optimization_strategy(self, keyword_data, strategy, max_cpa, min_conversion_rate):
         """Применяет стратегию оптимизации ставок в зависимости от выбранного метода."""
         suggested_changes = {}
         for keyword, stats in keyword_data.items():
