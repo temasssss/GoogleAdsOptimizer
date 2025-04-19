@@ -107,22 +107,32 @@ class GoogleAdsOptimizer(BaseTool):
 
     def _map_gclid_to_keyword(self, google_ads_client, gclid_list):
         gclid_to_keyword = {}
+        if not gclid_list:
+            return gclid_to_keyword
+
         try:
             service = google_ads_client.get_service("GoogleAdsService")
-            for gclid in gclid_list:
+            gclid_chunks = [gclid_list[i:i+50] for i in range(0, len(gclid_list), 50)]
+
+            for chunk in gclid_chunks:
+                gclid_filter = ", ".join(f"'{g}'" for g in chunk if g)
                 query = f"""
                     SELECT click_view.gclid, ad_group_criterion.keyword.text
                     FROM click_view
-                    WHERE click_view.gclid = '{gclid}'
+                    WHERE click_view.gclid IN ({gclid_filter})
                 """
-                response = service.search_stream(customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"), query=query)
+                response = service.search_stream(
+                    customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+                    query=query
+                )
                 for batch in response:
                     for row in batch.results:
                         gclid_value = row.click_view.gclid
                         keyword_text = row.ad_group_criterion.keyword.text
                         gclid_to_keyword[gclid_value] = keyword_text
+
         except GoogleAdsException as ex:
-            logging.error(f"Ошибка Google Ads API: {ex}")
+            logging.error(f"❌ Ошибка Google Ads API: {ex}")
         return gclid_to_keyword
 
     def _calculate_sales_per_keyword(self, sales_data, gclid_map):
@@ -138,7 +148,7 @@ class GoogleAdsOptimizer(BaseTool):
             parsed_url = urlparse(row.kuda)
             query_params = parse_qs(parsed_url.query)
             gclid = query_params.get("gclid", [None])[0]
-            keyword = gclid_map.get(gclid, gclid or "unknown")
+            keyword = gclid_map.get(gclid, f"Unmapped ({gclid})") if gclid else "unknown"
             keyword_data[keyword]["clicks"] += 1
             keyword_data[keyword]["cost"] += float(row.cost) if row.cost else 0.0
             if row.conv in ["registr", "transfer"]:
