@@ -52,18 +52,42 @@ class GoogleAdsOptimizer(BaseTool):
         return GoogleAdsClient.load_from_dict(config)
 
     def _apply_optimization_strategy(self, keyword_data, strategy, max_cpa, min_conversion_rate):
-        """Применяет стратегию оптимизации ставок в зависимости от выбранного метода."""
         suggested_changes = {}
         for keyword, stats in keyword_data.items():
             avg_cpa = stats["total_sales"] / stats["conversion_count"] if stats["conversion_count"] > 0 else float('inf')
             conv_rate = stats["conversion_count"] / stats["clicks"] if stats["clicks"] > 0 else 0.0
-            if strategy == "ROAS" and stats["total_sales"] > 0:
-                suggested_changes[keyword] = "Increase bid"
+
+            if stats["clicks"] == 0:
+                reason = "No traffic"
+                action = "Skip"
+            elif stats["conversion_count"] == 0:
+                reason = "No conversions"
+                action = "Pause or lower bid"
+            elif strategy == "ROAS" and stats["total_sales"] > 0:
+                action = "Increase bid"
+                reason = "High ROAS"
             elif strategy == "CPA" and avg_cpa > max_cpa:
-                suggested_changes[keyword] = "Decrease bid"
+                action = "Decrease bid"
+                reason = f"Average CPA ({avg_cpa:.2f}) exceeds max CPA ({max_cpa})"
             elif strategy == "Manual":
-                suggested_changes[keyword] = "Review manually"
-        return suggested_changes  
+                action = "Review manually"
+                reason = "Manual strategy selected"
+            else:
+                continue
+
+            suggested_changes[keyword] = {
+                "action": action,
+                "avg_cpa": round(avg_cpa, 2) if avg_cpa != float('inf') else None,
+                "conv_rate": round(conv_rate, 4),
+                "clicks": stats["clicks"],
+                "conversion_count": stats["conversion_count"],
+                "average_cpc": stats.get("average_cpc", 0.0),
+                "current_bid": stats.get("current_bid", 0.0),
+                "cost": stats.get("cost", 0.0),
+                "reason": reason
+            }
+
+        return suggested_changes
 
     def _fetch_sales_data(self, attribution_window_days: int):
         """Функция загрузки данных о продажах из базы данных."""
@@ -102,18 +126,31 @@ class GoogleAdsOptimizer(BaseTool):
         return gclid_to_keyword
 
     def _calculate_sales_per_keyword(self, sales_data, gclid_map):
-        keyword_data = defaultdict(lambda: {"total_sales": 0.0, "conversion_count": 0, "clicks": 0})
+        keyword_data = defaultdict(lambda: {
+            "total_sales": 0.0,
+            "conversion_count": 0,
+            "clicks": 0,
+            "average_cpc": 0.0,
+            "current_bid": 0.0,
+            "cost": 0.0
+        })
         for row in sales_data:
             parsed_url = urlparse(row.kuda)
             query_params = parse_qs(parsed_url.query)
             gclid = query_params.get("gclid", [None])[0]
             keyword = gclid_map.get(gclid, gclid or "unknown")
             keyword_data[keyword]["clicks"] += 1
-            keyword_data[keyword]["total_sales"] += float(row.cost) if row.cost else 0.0
+            keyword_data[keyword]["cost"] += float(row.cost) if row.cost else 0.0
             if row.conv in ["registr", "transfer"]:
                 keyword_data[keyword]["conversion_count"] += 1
+                keyword_data[keyword]["total_sales"] += float(row.cost) if row.cost else 0.0
+
+        for kw in keyword_data:
+            clicks = keyword_data[kw]["clicks"]
+            cost = keyword_data[kw]["cost"]
+            keyword_data[kw]["average_cpc"] = round(cost / clicks, 2) if clicks > 0 else 0.0
         return keyword_data
-        
+       
     def _execute(self, campaign_id: str, max_cpa: float, min_conversion_rate: float, 
                   attribution_window_days: int, max_budget: float, daily_budget_limit: float, optimization_strategy: str):
         logging.info(f"🔹 Запуск оптимизации кампании {campaign_id} в тестовом режиме: {TEST_MODE}")
@@ -128,7 +165,11 @@ class GoogleAdsOptimizer(BaseTool):
                 "total_sales": data["total_sales"],
                 "conversion_count": data["conversion_count"],
                 "average_sale": round(data["total_sales"] / data["conversion_count"], 2) if data["conversion_count"] > 0 else 0.0,
-                "status": "effective" if data["conversion_count"] > 0 or data["total_sales"] > 0 else "ineffective"
+                "clicks": data["clicks"],
+                "average_cpc": data["average_cpc"],
+                "current_bid": data["current_bid"],
+                "cost": data["cost"],
+                "status": "effective" if data["conversion_count"] > 0 or data["total_sales"] > 0 else "needs attention"
             } for keyword, data in keyword_data.items()
         }
 
@@ -139,16 +180,18 @@ class GoogleAdsOptimizer(BaseTool):
             "conversion_report": detailed_report
         }
 
+        self._save_report_to_file("optimization_report.json", optimization_result)
+
         if TEST_MODE:
             print("🛑 Агент работает в тестовом режиме! Изменения не применяются.")
             print("🔹 Подробный отчет:", optimization_result)
         else:
             self._apply_google_ads_changes(optimization_result)
 
-        self._save_report_to_file("optimization_report.txt", optimization_result)
-        return optimization_result       
+        return optimization_result
 
     def _save_report_to_file(self, filename, report_content):
+        import json
         with open(filename, "w") as file:
-            file.write(str(report_content))
+            json.dump(report_content, file, indent=2, ensure_ascii=False)
         logging.info(f"📄 Отчет сохранен в файл {filename}")
