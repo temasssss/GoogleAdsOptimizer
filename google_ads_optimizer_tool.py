@@ -146,7 +146,10 @@ class GoogleAdsOptimizer(BaseTool):
                 for batch in response:
                     for row in batch.results:
                         gclid_value = row.click_view.gclid
-                        keyword_text = row.ad_group_criterion.keyword.text
+                        if hasattr(row.ad_group_criterion.keyword, "text"):
+                            keyword_text = row.ad_group_criterion.keyword.text
+                        else:
+                            keyword_text = f"Unmapped ({gclid_value})"
                         gclid_to_keyword[gclid_value] = keyword_text
 
         except GoogleAdsException as ex:
