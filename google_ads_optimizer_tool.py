@@ -105,6 +105,24 @@ class GoogleAdsOptimizer(BaseTool):
             sales_data = result.fetchall()
         return sales_data
 
+    def _fetch_all_keywords(self, google_ads_client, campaign_id):
+        service = google_ads_client.get_service("GoogleAdsService")
+        query = f"""
+            SELECT ad_group_criterion.keyword.text
+            FROM ad_group_criterion
+            WHERE campaign.id = {campaign_id}
+            AND ad_group_criterion.status = 'ENABLED'
+        """
+        response = service.search_stream(
+            customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+            query=query
+        )
+        keywords = set()
+        for batch in response:
+            for row in batch.results:
+                keywords.add(row.ad_group_criterion.keyword.text)
+        return keywords
+
     def _map_gclid_to_keyword(self, google_ads_client, gclid_list):
         gclid_to_keyword = {}
         if not gclid_list:
@@ -169,6 +187,18 @@ class GoogleAdsOptimizer(BaseTool):
         gclid_list = [parse_qs(urlparse(row.kuda).query).get("gclid", [None])[0] for row in sales_data]
         gclid_map = self._map_gclid_to_keyword(google_ads_client, gclid_list)
         keyword_data = self._calculate_sales_per_keyword(sales_data, gclid_map)
+
+        all_keywords = self._fetch_all_keywords(google_ads_client, campaign_id)
+        for keyword in all_keywords:
+            if keyword not in keyword_data:
+                keyword_data[keyword] = {
+                    "total_sales": 0.0,
+                    "conversion_count": 0,
+                    "clicks": 0,
+                    "average_cpc": 0.0,
+                    "current_bid": 0.0,
+                    "cost": 0.0
+                }
 
         detailed_report = {
             keyword: {
