@@ -53,23 +53,51 @@ class GoogleAdsOptimizer(BaseTool):
         
     def _fetch_all_gclid_keyword_pairs(self, google_ads_client, campaign_id, days):
         service = google_ads_client.get_service("GoogleAdsService")
-        query = f"""
-            SELECT click_view.gclid, ad_group_criterion.keyword.text
+
+        query_clicks = f"""
+            SELECT click_view.gclid, ad_group_criterion.criterion_id
             FROM click_view
             WHERE campaign.id = {campaign_id}
             AND segments.date DURING LAST_{days}_DAYS
         """
+        gclid_to_criterion = {}
         response = service.search_stream(
             customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
-            query=query
+            query=query_clicks
         )
-        result = {}
         for batch in response:
             for row in batch.results:
-                gclid = row.click_view.gclid
-                keyword = row.ad_group_criterion.keyword.text
-                result[gclid] = keyword
-        return result
+                if row.click_view.gclid and row.ad_group_criterion.criterion_id:
+                    gclid_to_criterion[row.click_view.gclid] = row.ad_group_criterion.criterion_id
+
+        if not gclid_to_criterion:
+            return {}
+
+        criterion_ids = list(gclid_to_criterion.values())
+        id_chunks = [criterion_ids[i:i + 1000] for i in range(0, len(criterion_ids), 1000)]
+
+        criterion_to_keyword = {}
+        for chunk in id_chunks:
+            ids_str = ", ".join(map(str, chunk))
+            query_keywords = f"""
+                SELECT ad_group_criterion.criterion_id, ad_group_criterion.keyword.text
+                FROM ad_group_criterion
+                WHERE ad_group_criterion.criterion_id IN ({ids_str})
+            """
+            response_kw = service.search_stream(
+                customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+                query=query_keywords
+            )
+            for batch in response_kw:
+                for row in batch.results:
+                    criterion_to_keyword[row.ad_group_criterion.criterion_id] = row.ad_group_criterion.keyword.text
+
+        gclid_to_keyword = {
+            gclid: criterion_to_keyword.get(crit_id, f"Unmapped ({gclid})")
+            for gclid, crit_id in gclid_to_criterion.items()
+        }
+
+        return gclid_to_keyword
 
     def _apply_optimization_strategy(self, keyword_data, strategy, max_cpa, min_conversion_rate):
         suggested_changes = {}
