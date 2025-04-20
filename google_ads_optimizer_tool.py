@@ -50,6 +50,26 @@ class GoogleAdsOptimizer(BaseTool):
             logging.error(f"❌ Отсутствуют обязательные параметры: {missing_keys}")
             raise ValueError(f"❌ Отсутствуют обязательные параметры: {missing_keys}")
         return GoogleAdsClient.load_from_dict(config)
+        
+    def _fetch_all_gclid_keyword_pairs(self, google_ads_client, campaign_id, days):
+        service = google_ads_client.get_service("GoogleAdsService")
+        query = f"""
+            SELECT click_view.gclid, ad_group_criterion.keyword.text
+            FROM click_view
+            WHERE campaign.id = {campaign_id}
+            AND segments.date DURING LAST_{days}_DAYS
+        """
+        response = service.search_stream(
+            customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+            query=query
+        )
+        result = {}
+        for batch in response:
+            for row in batch.results:
+                gclid = row.click_view.gclid
+                keyword = row.ad_group_criterion.keyword.text
+                result[gclid] = keyword
+        return result
 
     def _apply_optimization_strategy(self, keyword_data, strategy, max_cpa, min_conversion_rate):
         suggested_changes = {}
@@ -123,39 +143,6 @@ class GoogleAdsOptimizer(BaseTool):
                 keywords.add(row.ad_group_criterion.keyword.text)
         return keywords
 
-    def _map_gclid_to_keyword(self, google_ads_client, gclid_list):
-        gclid_to_keyword = {}
-        if not gclid_list:
-            return gclid_to_keyword
-
-        try:
-            service = google_ads_client.get_service("GoogleAdsService")
-            gclid_chunks = [gclid_list[i:i+50] for i in range(0, len(gclid_list), 50)]
-
-            for chunk in gclid_chunks:
-                gclid_filter = ", ".join(f"'{g}'" for g in chunk if g)
-                query = f"""
-                    SELECT click_view.gclid, ad_group_criterion.keyword.text
-                    FROM click_view
-                    WHERE click_view.gclid IN ({gclid_filter})
-                """
-                response = service.search_stream(
-                    customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
-                    query=query
-                )
-                for batch in response:
-                    for row in batch.results:
-                        gclid_value = row.click_view.gclid
-                        if hasattr(row.ad_group_criterion.keyword, "text"):
-                            keyword_text = row.ad_group_criterion.keyword.text
-                        else:
-                            keyword_text = f"Unmapped ({gclid_value})"
-                        gclid_to_keyword[gclid_value] = keyword_text
-
-        except GoogleAdsException as ex:
-            logging.error(f"❌ Ошибка Google Ads API: {ex}")
-        return gclid_to_keyword
-
     def _calculate_sales_per_keyword(self, sales_data, gclid_map):
         keyword_data = defaultdict(lambda: {
             "total_sales": 0.0,
@@ -187,8 +174,7 @@ class GoogleAdsOptimizer(BaseTool):
         logging.info(f"🔹 Запуск оптимизации кампании {campaign_id} в тестовом режиме: {TEST_MODE}")
         google_ads_client = self._initialize_google_ads_client()
         sales_data = self._fetch_sales_data(attribution_window_days)
-        gclid_list = [parse_qs(urlparse(row.kuda).query).get("gclid", [None])[0] for row in sales_data]
-        gclid_map = self._map_gclid_to_keyword(google_ads_client, gclid_list)
+        gclid_map = self._fetch_all_gclid_keyword_pairs(google_ads_client, campaign_id, attribution_window_days)
         keyword_data = self._calculate_sales_per_keyword(sales_data, gclid_map)
 
         all_keywords = self._fetch_all_keywords(google_ads_client, campaign_id)
