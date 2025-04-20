@@ -55,7 +55,7 @@ class GoogleAdsOptimizer(BaseTool):
         service = google_ads_client.get_service("GoogleAdsService")
 
         query_clicks = f"""
-            SELECT click_view.gclid, ad_group_criterion.criterion_id
+            SELECT click_view.gclid, click_view.ad_group_criterion
             FROM click_view
             WHERE campaign.id = {campaign_id}
             AND segments.date DURING LAST_{days}_DAYS
@@ -67,8 +67,10 @@ class GoogleAdsOptimizer(BaseTool):
         )
         for batch in response:
             for row in batch.results:
-                if row.click_view.gclid and row.ad_group_criterion.criterion_id:
-                    gclid_to_criterion[row.click_view.gclid] = row.ad_group_criterion.criterion_id
+                if row.click_view.gclid and row.click_view.ad_group_criterion:
+                    criterion_resource = row.click_view.ad_group_criterion
+                    criterion_id = int(criterion_resource.split("~")[1])
+                    gclid_to_criterion[row.click_view.gclid] = criterion_id
 
         if not gclid_to_criterion:
             return {}
