@@ -55,51 +55,63 @@ class GoogleAdsOptimizer(BaseTool):
         service = google_ads_client.get_service("GoogleAdsService")
 
         query_clicks = f"""
-            SELECT click_view.gclid, click_view.ad_group_criterion
+            SELECT
+                click_view.gclid,
+                click_view.ad_group_ad
             FROM click_view
             WHERE campaign.id = {campaign_id}
             AND segments.date DURING LAST_{days}_DAYS
         """
-        gclid_to_criterion = {}
+
+        gclid_to_ad_group_ad = {}
         response = service.search_stream(
             customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
             query=query_clicks
         )
+
+        ad_group_ad_ids = set()
+
         for batch in response:
             for row in batch.results:
-                if row.click_view.gclid and row.click_view.ad_group_criterion:
-                    resource_name = row.click_view.ad_group_criterion
-                    match = re.search(r"~(\d+)$", resource_name)
+                gclid = row.click_view.gclid
+                ad_group_ad = row.click_view.ad_group_ad
+                if gclid and ad_group_ad:
+                    match = re.search(r'adGroupAds/(?P<ad_group_id>\d+)~(?P<ad_id>\d+)', ad_group_ad)
                     if match:
-                        criterion_id = int(match.group(1))
-                        gclid_to_criterion[row.click_view.gclid] = criterion_id
+                        ad_group_id = match.group('ad_group_id')
+                        gclid_to_ad_group_ad[gclid] = ad_group_id
+                        ad_group_ad_ids.add(ad_group_id)
 
-        if not gclid_to_criterion:
-            return {}
+        # Получаем ключевые слова для каждой группы объявлений
+        ad_group_ids_str = ", ".join(ad_group_ad_ids)
+        query_keywords = f"""
+            SELECT
+                ad_group_criterion.ad_group,
+                ad_group_criterion.criterion_id,
+                ad_group_criterion.keyword.text
+            FROM ad_group_criterion
+            WHERE ad_group.id IN ({ad_group_ids_str})
+            AND ad_group_criterion.type = KEYWORD
+        """
 
-        criterion_ids = list(gclid_to_criterion.values())
-        id_chunks = [criterion_ids[i:i + 1000] for i in range(0, len(criterion_ids), 1000)]
+        response_kw = service.search_stream(
+            customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+            query=query_keywords
+        )
 
-        criterion_to_keyword = {}
-        for chunk in id_chunks:
-            ids_str = ", ".join(map(str, chunk))
-            query_keywords = f"""
-                SELECT ad_group_criterion.criterion_id, ad_group_criterion.keyword.text
-                FROM ad_group_criterion
-                WHERE ad_group_criterion.criterion_id IN ({ids_str})
-            """
-            response_kw = service.search_stream(
-                customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
-                query=query_keywords
-            )
-            for batch in response_kw:
-                for row in batch.results:
-                    criterion_to_keyword[row.ad_group_criterion.criterion_id] = row.ad_group_criterion.keyword.text
+        ad_group_to_keywords = defaultdict(list)
 
-        gclid_to_keyword = {
-            gclid: criterion_to_keyword.get(crit_id, f"Unmapped ({gclid})")
-            for gclid, crit_id in gclid_to_criterion.items()
-        }
+        for batch in response_kw:
+            for row in batch.results:
+                ad_group_id = row.ad_group_criterion.ad_group.split('/')[-1]
+                keyword = row.ad_group_criterion.keyword.text
+                ad_group_to_keywords[ad_group_id].append(keyword)
+
+        # Соединяем GCLID с ключевыми словами через группу объявлений
+        gclid_to_keyword = {}
+        for gclid, ad_group_id in gclid_to_ad_group_ad.items():
+            keywords = ad_group_to_keywords.get(ad_group_id, [])
+            gclid_to_keyword[gclid] = keywords[0] if keywords else f"Unmapped ({gclid})"
 
         return gclid_to_keyword
 
@@ -238,7 +250,7 @@ class GoogleAdsOptimizer(BaseTool):
             "campaign_id": campaign_id,
             "strategy": optimization_strategy,
             "suggested_changes": self._apply_optimization_strategy(keyword_data, optimization_strategy, max_cpa, min_conversion_rate),
-            "conversion_report": detailed_report
+            "conversion_report": 1
         }
 
         self._save_report_to_file("optimization_report.json", optimization_result)
