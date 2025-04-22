@@ -14,6 +14,7 @@ from typing import Type, Optional
 from email.message import EmailMessage
 from sklearn.ensemble import RandomForestRegressor
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 # Включение логирования действий агента
 logging.basicConfig(filename="agent_actions.log", level=logging.INFO)
@@ -54,37 +55,44 @@ class GoogleAdsOptimizer(BaseTool):
     def _fetch_all_gclid_keyword_pairs(self, google_ads_client, campaign_id, days):
         service = google_ads_client.get_service("GoogleAdsService")
 
-        query_clicks = f"""
-            SELECT
-                click_view.gclid,
-                click_view.ad_group_ad,
-                campaign.id
-            FROM click_view
-            WHERE campaign.id = {campaign_id}
-            AND segments.date DURING LAST_{days}_DAYS
-        """
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=days)
 
         gclid_to_ad_group_ad = {}
-        response = service.search_stream(
-            customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
-            query=query_clicks
-        )
+        ad_group_ids = set()
 
-        ad_group_ad_ids = set()
+        for single_date in (start_date + timedelta(n) for n in range(days)):
+            date_str = single_date.strftime('%Y-%m-%d')
+            query_clicks = f"""
+                SELECT
+                    click_view.gclid,
+                    click_view.ad_group_ad,
+                    campaign.id
+                FROM click_view
+                WHERE campaign.id = {campaign_id}
+                AND segments.date = '{date_str}'
+            """
 
-        for batch in response:
-            for row in batch.results:
-                gclid = row.click_view.gclid
-                ad_group_ad = row.click_view.ad_group_ad
-                if gclid and ad_group_ad:
-                    match = re.search(r'adGroupAds/(?P<ad_group_id>\d+)~(?P<ad_id>\d+)', ad_group_ad)
-                    if match:
-                        ad_group_id = match.group('ad_group_id')
-                        gclid_to_ad_group_ad[gclid] = ad_group_id
-                        ad_group_ad_ids.add(ad_group_id)
+            response = service.search_stream(
+                customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
+                query=query_clicks
+            )
 
-        # Получаем ключевые слова для каждой группы объявлений
-        ad_group_ids_str = ", ".join(ad_group_ad_ids)
+            for batch in response:
+                for row in batch.results:
+                    gclid = row.click_view.gclid
+                    ad_group_ad = row.click_view.ad_group_ad
+                        if gclid and ad_group_ad:
+                        match = re.search(r'adGroupAds/(?P<ad_group_id>\d+)~(?P<ad_id>\d+)', ad_group_ad)
+                        if match:
+                            ad_group_id = match.group('ad_group_id')
+                            gclid_to_ad_group_ad[gclid] = ad_group_id
+                            ad_group_ids.add(ad_group_id)
+
+        if not ad_group_ids:
+            return {}
+
+        ad_group_ids_str = ", ".join(ad_group_ids)
         query_keywords = f"""
             SELECT
                 ad_group_criterion.ad_group,
@@ -108,7 +116,6 @@ class GoogleAdsOptimizer(BaseTool):
                 keyword = row.ad_group_criterion.keyword.text
                 ad_group_to_keywords[ad_group_id].append(keyword)
 
-        # Соединяем GCLID с ключевыми словами через группу объявлений
         gclid_to_keyword = {}
         for gclid, ad_group_id in gclid_to_ad_group_ad.items():
             keywords = ad_group_to_keywords.get(ad_group_id, [])
