@@ -57,7 +57,8 @@ class GoogleAdsOptimizer(BaseTool):
         query_clicks = f"""
             SELECT
                 click_view.gclid,
-                click_view.ad_group_ad
+                click_view.ad_group_ad,
+                campaign.id
             FROM click_view
             WHERE campaign.id = {campaign_id}
             AND segments.date DURING LAST_{days}_DAYS
