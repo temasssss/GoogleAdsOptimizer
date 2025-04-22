@@ -58,15 +58,15 @@ class GoogleAdsOptimizer(BaseTool):
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=days)
 
-        gclid_to_ad_group_ad = {}
-        ad_group_ids = set()
+        gclid_to_keyword = {}
 
         for single_date in (start_date + timedelta(n) for n in range(days)):
             date_str = single_date.strftime('%Y-%m-%d')
             query_clicks = f"""
                 SELECT
                     click_view.gclid,
-                    click_view.ad_group_ad,
+                    segments.keyword.info.text,
+                    segments.date,
                     campaign.id
                 FROM click_view
                 WHERE campaign.id = {campaign_id}
@@ -81,45 +81,11 @@ class GoogleAdsOptimizer(BaseTool):
             for batch in response:
                 for row in batch.results:
                     gclid = row.click_view.gclid
-                    ad_group_ad = row.click_view.ad_group_ad
-                    if gclid and ad_group_ad:
-                        match = re.search(r'adGroupAds/(?P<ad_group_id>\d+)~(?P<ad_id>\d+)', ad_group_ad)
-                        if match:
-                            ad_group_id = match.group('ad_group_id')
-                            gclid_to_ad_group_ad[gclid] = ad_group_id
-                            ad_group_ids.add(ad_group_id)
-
-        if not ad_group_ids:
-            return {}
-
-        ad_group_ids_str = ", ".join(ad_group_ids)
-        query_keywords = f"""
-            SELECT
-                ad_group_criterion.ad_group,
-                ad_group_criterion.criterion_id,
-                ad_group_criterion.keyword.text
-            FROM ad_group_criterion
-            WHERE ad_group.id IN ({ad_group_ids_str})
-            AND ad_group_criterion.type = KEYWORD
-        """
-
-        response_kw = service.search_stream(
-            customer_id=self.get_tool_config("GOOGLE_ADS_LOGIN_CUSTOMER_ID"),
-            query=query_keywords
-        )
-
-        ad_group_to_keywords = defaultdict(list)
-
-        for batch in response_kw:
-            for row in batch.results:
-                ad_group_id = row.ad_group_criterion.ad_group.split('/')[-1]
-                keyword = row.ad_group_criterion.keyword.text
-                ad_group_to_keywords[ad_group_id].append(keyword)
-
-        gclid_to_keyword = {}
-        for gclid, ad_group_id in gclid_to_ad_group_ad.items():
-            keywords = ad_group_to_keywords.get(ad_group_id, [])
-            gclid_to_keyword[gclid] = keywords[0] if keywords else f"Unmapped ({gclid})"
+                    keyword = row.segments.keyword.info.text if row.segments.keyword.info.text else None
+                    if gclid and keyword:
+                        gclid_to_keyword[gclid] = keyword
+                    else:
+                        gclid_to_keyword[gclid] = f"Unmapped ({gclid})"
 
         return gclid_to_keyword
 
