@@ -82,7 +82,7 @@ class GoogleAdsOptimizer(BaseTool):
                 for row in batch.results:
                     gclid = row.click_view.gclid
                     ad_group_ad = row.click_view.ad_group_ad
-                        if gclid and ad_group_ad:
+                    if gclid and ad_group_ad:
                         match = re.search(r'adGroupAds/(?P<ad_group_id>\d+)~(?P<ad_id>\d+)', ad_group_ad)
                         if match:
                             ad_group_id = match.group('ad_group_id')
